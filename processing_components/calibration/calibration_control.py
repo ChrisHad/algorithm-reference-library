@@ -12,7 +12,7 @@ import logging
 
 import numpy
 
-from data_models.memory_data_models import Visibility
+from data_models.memory_data_models import Visibility, BlockVisibility
 
 from ..calibration.operations import create_gaintable_from_blockvisibility, apply_gaintable, qa_gaintable
 from ..calibration.calibration import solve_gaintable
@@ -65,21 +65,33 @@ def apply_calibration_function(vis, gaintables, calibration_context='T', control
 
     if controls is None:
         controls = create_calibration_controls(**kwargs)
-    
-    isVis = isinstance(vis, Visibility)
-    if isVis:
-        avis = convert_visibility_to_blockvisibility(vis)
-    else:
-        avis = vis
-        
+
+    # Check to see if changes are required
+    changes = False
     for c in calibration_context:
         if iteration >= controls[c]['first_selfcal']:
-            avis = apply_gaintable(avis, gaintables[c], inverse=True, timeslice=controls[c]['timeslice'])
+            changes = True
+
+    if changes:
+    
+        isVis = isinstance(vis, Visibility)
+        if isVis:
+            avis = convert_visibility_to_blockvisibility(vis)
+        else:
+            avis = vis
+
+        assert isinstance(avis, BlockVisibility), avis
+
+        for c in calibration_context:
+            if iteration >= controls[c]['first_selfcal']:
+                avis = apply_gaintable(avis, gaintables[c], inverse=True, timeslice=controls[c]['timeslice'])
             
-    if isVis:
-        return convert_blockvisibility_to_visibility(avis)
+        if isVis:
+            return convert_blockvisibility_to_visibility(avis)
+        else:
+            return avis
     else:
-        return avis
+        return vis
 
 
 def calibrate_function(vis, model_vis, calibration_context='T', controls=None, iteration=0, tol=1e-8, **kwargs):
@@ -100,36 +112,50 @@ def calibrate_function(vis, model_vis, calibration_context='T', controls=None, i
     if controls is None:
         controls = create_calibration_controls(**kwargs)
     
-    isVis = isinstance(vis, Visibility)
-    if isVis:
-        avis = convert_visibility_to_blockvisibility(vis)
-    else:
-        avis = vis
-    
-    isMVis = isinstance(model_vis, Visibility)
-    if isMVis:
-        amvis = convert_visibility_to_blockvisibility(model_vis)
-    else:
-        amvis = model_vis
-    
+    # Check to see if changes are required
+    changes = False
     for c in calibration_context:
         if iteration >= controls[c]['first_selfcal']:
-            gaintables[c] = \
-                create_gaintable_from_blockvisibility(avis, timeslice=controls[c]['timeslice'])
-            gaintables[c] = solve_gaintable(avis, amvis,
-                                            timeslice=controls[c]['timeslice'],
-                                            phase_only=controls[c]['phase_only'],
-                                            crosspol=controls[c]['shape'] == 'matrix',
-                                            tol=tol)
-            log.debug('calibrate_function: Jones matrix %s, iteration %d' % (c, iteration))
-            log.debug(qa_gaintable(gaintables[c], context='Jones matrix %s, iteration %d' % (c, iteration)))
-            avis = apply_gaintable(avis, gaintables[c], inverse=True, timeslice=controls[c]['timeslice'])
+            changes = True
+
+    if changes:
+    
+        isVis = isinstance(vis, Visibility)
+        if isVis:
+            avis = convert_visibility_to_blockvisibility(vis)
         else:
-            log.debug('calibrate_function: Jones matrix %s not solved, iteration %d' % (c, iteration))
-    if isVis:
-        return convert_blockvisibility_to_visibility(avis), gaintables
+            avis = vis
+    
+        isMVis = isinstance(model_vis, Visibility)
+        if isMVis:
+            amvis = convert_visibility_to_blockvisibility(model_vis)
+        else:
+            amvis = model_vis
+
+        assert isinstance(avis, BlockVisibility), avis
+
+        for c in calibration_context:
+            if iteration >= controls[c]['first_selfcal']:
+                changed = True
+                gaintables[c] = \
+                    create_gaintable_from_blockvisibility(avis, timeslice=controls[c]['timeslice'])
+                gaintables[c] = solve_gaintable(avis, amvis,
+                                                timeslice=controls[c]['timeslice'],
+                                                phase_only=controls[c]['phase_only'],
+                                                crosspol=controls[c]['shape'] == 'matrix',
+                                                tol=tol)
+                log.debug('calibrate_function: Jones matrix %s, iteration %d' % (c, iteration))
+                log.debug(qa_gaintable(gaintables[c], context='Jones matrix %s, iteration %d' % (c, iteration)))
+                avis = apply_gaintable(avis, gaintables[c], inverse=True, timeslice=controls[c]['timeslice'])
+            else:
+                log.debug('calibrate_function: Jones matrix %s not solved, iteration %d' % (c, iteration))
+    
+        if isVis:
+            return convert_blockvisibility_to_visibility(avis), gaintables
+        else:
+            return avis, gaintables
     else:
-        return avis, gaintables
+        return vis, gaintables
 
 
 def solve_calibrate_function(vis, model_vis, calibration_context='T', controls=None, iteration=0, tol=1e-6, **kwargs):
@@ -149,29 +175,40 @@ def solve_calibrate_function(vis, model_vis, calibration_context='T', controls=N
     
     if controls is None:
         controls = create_calibration_controls(**kwargs)
-    
-    isVis = isinstance(vis, Visibility)
-    if isVis:
-        avis = convert_visibility_to_blockvisibility(vis)
-    else:
-        avis = vis
-    
-    isMVis = isinstance(model_vis, Visibility)
-    if isMVis:
-        amvis = convert_visibility_to_blockvisibility(model_vis)
-    else:
-        amvis = model_vis
-    
+
+    # Check to see if changes are required
+    changes = False
     for c in calibration_context:
         if iteration >= controls[c]['first_selfcal']:
-            gaintables[c] = \
-                create_gaintable_from_blockvisibility(avis, timeslice=controls[c]['timeslice'])
-            gaintables[c] = solve_gaintable(avis, amvis,
-                                            timeslice=controls[c]['timeslice'],
-                                            phase_only=controls[c]['phase_only'],
-                                            crosspol=controls[c]['shape'] == 'matrix',
-                                            tol=tol)
-            log.debug(qa_gaintable(gaintables[c], context='Jones matrix %s, iteration %d' % (c, iteration)))
+            changes = True
+
+    if changes:
+    
+        isVis = isinstance(vis, Visibility)
+        if isVis:
+            avis = convert_visibility_to_blockvisibility(vis)
         else:
-            log.debug('calibrate_function: Jones matrix %s not solved, iteration %d' % (c, iteration))
+            avis = vis
+    
+        isMVis = isinstance(model_vis, Visibility)
+        if isMVis:
+            amvis = convert_visibility_to_blockvisibility(model_vis)
+        else:
+            amvis = model_vis
+            
+        assert isinstance(avis, BlockVisibility), avis
+    
+        for c in calibration_context:
+            if iteration >= controls[c]['first_selfcal']:
+                gaintables[c] = \
+                    create_gaintable_from_blockvisibility(avis, timeslice=controls[c]['timeslice'])
+                gaintables[c] = solve_gaintable(avis, amvis,
+                                                timeslice=controls[c]['timeslice'],
+                                                phase_only=controls[c]['phase_only'],
+                                                crosspol=controls[c]['shape'] == 'matrix',
+                                                tol=tol)
+                log.debug(qa_gaintable(gaintables[c], context='Jones matrix %s, iteration %d' % (c, iteration)))
+            else:
+                log.debug('calibrate_function: Jones matrix %s not solved, iteration %d' % (c, iteration))
+                
     return gaintables
